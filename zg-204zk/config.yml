@@ -1,0 +1,5 @@
+name: Hobeian mmWave Presence Sensor (ZG-204ZK)
+packageKey: devy-hobeian-zg204zk-mmwave
+category: MotionSensor
+permissions:
+  zigbee: {}
