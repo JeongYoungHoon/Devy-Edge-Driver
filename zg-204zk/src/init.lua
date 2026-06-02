@@ -62,6 +62,7 @@ local hobeian_driver = ZigbeeDriver("hobeian-zg204zk-mmwave", {
     capabilities.battery,
     capabilities.refresh
   },
+  health_check = false,
   lifecycle_handlers = {
     init = function(driver, device)
       log.info(string.format("[%s] Driver Loaded", device.label))
