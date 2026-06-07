@@ -1,0 +1,5 @@
+name: Tuya Zigbee Motion Sensor (TS0601 TZE200_ko8l86iu)
+packageKey: devy-tuya-tz-motion-sensor
+category: MotionSensor
+permissions:
+  zigbee: {}
