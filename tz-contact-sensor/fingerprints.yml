@@ -1,5 +1,5 @@
 zigbeeManufacturer:
-  - id: "_TZE200_ko8l86iu/TS0601"
-    manufacturer: _TZE200_ko8l86iu
+  - id: "_TZE200_ka8l86iu/TS0601"
+    manufacturer: _TZE200_ka8l86iu
     model: TS0601
     deviceProfileName: motion-sensor

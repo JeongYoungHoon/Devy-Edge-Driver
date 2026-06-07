@@ -2,8 +2,10 @@ local capabilities = require "st.capabilities"
 local ZigbeeDriver = require "st.zigbee"
 local clusters = require "st.zigbee.zcl.clusters"
 local cluster_base = require "st.zigbee.cluster_base"
+local data_types = require "st.zigbee.data_types"
 local generic_body = require "st.zigbee.generic_body"
 local log = require "log"
+
 
 local TUYA_CLUSTER = 0xEF00
 local DP_TYPE_BOOL  = 0x01
@@ -48,7 +50,7 @@ end
 ------------------------------------------------------------------------
 
 local function can_handle(opts, driver, device, ...)
-  return device:get_manufacturer() == "_TZE200_ko8l86iu" and device:get_model() == "TS0601"
+  return device:get_manufacturer() == "_TZE200_ka8l86iu" and device:get_model() == "TS0601"
 end
 
 ------------------------------------------------------------------------
@@ -76,25 +78,69 @@ local function tuya_main_handler(driver, device, zb_rx)
     -- DP 1: motion/presence. 0=inactive, 1=active (most common Tuya convention)
     if value == 1 then
       device:emit_event(capabilities.motionSensor.motion.active())
+      device:emit_event(capabilities.presenceSensor.presence.present())
     else
       device:emit_event(capabilities.motionSensor.motion.inactive())
+      device:emit_event(capabilities.presenceSensor.presence.not_present())
     end
-  elseif dp == 0x02 or dp == 0x03 or dp == 12 or dp == 101 then
-    -- Battery percentage (various DPs depending on firmware)
+  elseif dp == 121 then
+    -- DP 121: battery percentage (confirmed from logs)
     local pct = math.min(100, math.max(0, value))
     log.info(string.format("[%s] Battery (DP %d): %d%%", device.label, dp, pct))
     device:emit_event(capabilities.battery.battery(pct))
   end
 end
 
--- IASZone ZoneStatus handler (backup path — Tuya TS0601 may not actually use this)
-local function ias_zone_status_handler(driver, device, zone_status, zb_rx)
-  local alarm1 = zone_status.value & 0x01
-  log.info(string.format("[%s] IASZone ZoneStatus: 0x%04X (alarm1=%d)", device.label, zone_status.value, alarm1))
+------------------------------------------------------------------------
+-- IASZone Enrollment
+------------------------------------------------------------------------
+
+local function ias_enroll(driver, device)
+  local hub_eui = driver.environment_info and driver.environment_info.hub_zigbee_eui
+  if not hub_eui then
+    log.warn(string.format("[%s] hub_zigbee_eui nil - skipping IASZone enrollment", device.label))
+    return
+  end
+  device:send(clusters.IASZone.attributes.IASCIEAddress:write(device, data_types.IeeeAddress(hub_eui)))
+  log.info(string.format("[%s] IASZone CIE Address written", device.label))
+end
+
+-- Zone Enroll Request (0x01, device → hub): 허브가 CIE Address 쓴 후 기기가 보내는 등록 요청
+local function zone_enroll_request_handler(driver, device, zb_rx)
+  log.info(string.format("[%s] IASZone Enroll Request - sending response", device.label))
+  -- Zone Enroll Response payload: Enroll Response Code(0x00=Success) | Zone ID(0x01)
+  local enroll_rsp = string.char(0x00, 0x01)
+  local cluster_obj = {ID = clusters.IASZone.ID}
+  local gb = generic_body.GenericBody(enroll_rsp)
+  local cmd = setmetatable({ID = 0x00}, {__index = gb})
+  device:send(cluster_base.build_cluster_specific_command(cluster_obj, device, cmd))
+end
+
+-- IASZone Zone Status Change Notification (cluster command 0x00 — device → hub)
+-- SDK parses this into structured zcl_body fields (not body_bytes)
+local function ias_zone_notification_handler(driver, device, zb_rx)
+  local zone_status = zb_rx.body.zcl_body.zone_status.value
+  local alarm1 = zone_status & 0x01
+  log.info(string.format("[%s] IASZone Notification: 0x%04X (alarm1=%d)", device.label, zone_status, alarm1))
   if alarm1 == 1 then
     device:emit_event(capabilities.motionSensor.motion.active())
+    device:emit_event(capabilities.presenceSensor.presence.present())
   else
     device:emit_event(capabilities.motionSensor.motion.inactive())
+    device:emit_event(capabilities.presenceSensor.presence.not_present())
+  end
+end
+
+-- IASZone ZoneStatus attribute report (backup)
+local function ias_zone_status_handler(driver, device, zone_status, zb_rx)
+  local alarm1 = zone_status.value & 0x01
+  log.info(string.format("[%s] IASZone AttrReport: 0x%04X (alarm1=%d)", device.label, zone_status.value, alarm1))
+  if alarm1 == 1 then
+    device:emit_event(capabilities.motionSensor.motion.active())
+    device:emit_event(capabilities.presenceSensor.presence.present())
+  else
+    device:emit_event(capabilities.motionSensor.motion.inactive())
+    device:emit_event(capabilities.presenceSensor.presence.not_present())
   end
 end
 
@@ -105,6 +151,7 @@ end
 local contact_driver = ZigbeeDriver("tuya-tz-motion-sensor", {
   supported_capabilities = {
     capabilities.motionSensor,
+    capabilities.presenceSensor,
     capabilities.battery,
     capabilities.refresh
   },
@@ -112,19 +159,30 @@ local contact_driver = ZigbeeDriver("tuya-tz-motion-sensor", {
   lifecycle_handlers = {
     init = function(driver, device)
       log.info(string.format("[%s] Driver Loaded", device.label))
+      driver:call_with_delay(2, function(d) ias_enroll(d, device) end)
     end,
     added = function(driver, device)
       log.info(string.format("[%s] Device Added", device.label))
       device:emit_event(capabilities.motionSensor.motion.inactive())
+      device:emit_event(capabilities.presenceSensor.presence.not_present())
     end,
     doConfigure = function(driver, device)
       log.info(string.format("[%s] Configuring", device.label))
+      ias_enroll(driver, device)
       device:send(clusters.IASZone.attributes.ZoneStatus:read(device))
       device:send(clusters.PowerConfiguration.attributes.BatteryPercentageRemaining:read(device))
+    end,
+    driverSwitched = function(driver, device)
+      log.info(string.format("[%s] Driver Switched - re-enrolling IASZone", device.label))
+      ias_enroll(driver, device)
     end,
   },
   zigbee_handlers = {
     cluster = {
+      [clusters.IASZone.ID] = {
+        [0x00] = ias_zone_notification_handler,
+        [0x01] = zone_enroll_request_handler
+      },
       [TUYA_CLUSTER] = {
         [0x01] = tuya_main_handler,
         [0x02] = tuya_main_handler
@@ -155,5 +213,5 @@ local contact_driver = ZigbeeDriver("tuya-tz-motion-sensor", {
   can_handle = can_handle
 })
 
-log.info("!!! TUYA TZE200_ko8l86iu MOTION SENSOR DRIVER READY !!!")
+log.info("!!! TUYA TZE200_ka8l86iu MOTION SENSOR DRIVER READY !!!")
 contact_driver:run()
