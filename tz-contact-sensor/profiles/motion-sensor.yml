@@ -12,3 +12,54 @@ components:
         version: 1
     categories:
       - name: MotionSensor
+preferences:
+  - name: fadingTime
+    title: "감지 유지 시간 (초)"
+    description: "사람이 사라진 후 부재 전환까지 대기 시간 (10 ~ 28800초)"
+    required: false
+    preferenceType: integer
+    definition:
+      minimum: 10
+      maximum: 28800
+      default: 30
+  - name: detectionDistance
+    title: "감지 거리 (m)"
+    description: "최대 감지 거리 (0.0 ~ 5.0m)"
+    required: false
+    preferenceType: number
+    definition:
+      minimum: 0.0
+      maximum: 5.0
+      default: 5.0
+  - name: staticSensitivity
+    title: "정적 감지 감도"
+    description: "정적(미세) 움직임 감도 (0 ~ 10, 높을수록 민감)"
+    required: false
+    preferenceType: integer
+    definition:
+      minimum: 0
+      maximum: 10
+      default: 8
+  - name: motionSensitivity
+    title: "동작 감지 감도"
+    description: "동작 감도 (0 ~ 10, 높을수록 민감)"
+    required: false
+    preferenceType: integer
+    definition:
+      minimum: 0
+      maximum: 10
+      default: 8
+  - name: indicator
+    title: "LED 표시기"
+    description: "기기 상단 LED 켜기/끄기"
+    required: false
+    preferenceType: boolean
+    definition:
+      default: true
+  - name: antiInterference
+    title: "간섭 방지"
+    description: "전파 간섭 방지 기능 활성화"
+    required: false
+    preferenceType: boolean
+    definition:
+      default: false

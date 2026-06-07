@@ -9,6 +9,7 @@ local log = require "log"
 
 local TUYA_CLUSTER = 0xEF00
 local DP_TYPE_BOOL  = 0x01
+local DP_TYPE_VALUE = 0x02
 
 ------------------------------------------------------------------------
 -- Tuya DP Write
@@ -43,6 +44,44 @@ local function send_tuya_dp(device, dp, data_type, value)
   local gb = generic_body.GenericBody(body)
   local cmd = setmetatable({ID = 0x00}, {__index = gb})
   device:send(cluster_base.build_cluster_specific_command(cluster_obj, device, cmd))
+end
+
+------------------------------------------------------------------------
+-- Preferences
+------------------------------------------------------------------------
+
+local function apply_all_preferences(device)
+  local p = device.preferences
+  if not p then return end
+  send_tuya_dp(device, 102, DP_TYPE_VALUE, p.fadingTime or 30)
+  send_tuya_dp(device, 4,   DP_TYPE_VALUE, math.floor((p.detectionDistance or 5.0) * 100))
+  send_tuya_dp(device, 2,   DP_TYPE_VALUE, p.staticSensitivity or 8)
+  send_tuya_dp(device, 123, DP_TYPE_VALUE, p.motionSensitivity or 8)
+  send_tuya_dp(device, 107, DP_TYPE_BOOL,  p.indicator ~= false)
+  send_tuya_dp(device, 122, DP_TYPE_BOOL,  p.antiInterference == true)
+end
+
+local function apply_changed_preferences(device, old_prefs)
+  local p = device.preferences
+  if not p then return end
+  if p.fadingTime ~= old_prefs.fadingTime then
+    send_tuya_dp(device, 102, DP_TYPE_VALUE, p.fadingTime)
+  end
+  if p.detectionDistance ~= old_prefs.detectionDistance then
+    send_tuya_dp(device, 4, DP_TYPE_VALUE, math.floor(p.detectionDistance * 100))
+  end
+  if p.staticSensitivity ~= old_prefs.staticSensitivity then
+    send_tuya_dp(device, 2, DP_TYPE_VALUE, p.staticSensitivity)
+  end
+  if p.motionSensitivity ~= old_prefs.motionSensitivity then
+    send_tuya_dp(device, 123, DP_TYPE_VALUE, p.motionSensitivity)
+  end
+  if p.indicator ~= old_prefs.indicator then
+    send_tuya_dp(device, 107, DP_TYPE_BOOL, p.indicator ~= false)
+  end
+  if p.antiInterference ~= old_prefs.antiInterference then
+    send_tuya_dp(device, 122, DP_TYPE_BOOL, p.antiInterference == true)
+  end
 end
 
 ------------------------------------------------------------------------
@@ -171,6 +210,13 @@ local contact_driver = ZigbeeDriver("tuya-tz-motion-sensor", {
       ias_enroll(driver, device)
       device:send(clusters.IASZone.attributes.ZoneStatus:read(device))
       device:send(clusters.PowerConfiguration.attributes.BatteryPercentageRemaining:read(device))
+      device.thread:call_with_delay(2, function()
+        apply_all_preferences(device)
+      end)
+    end,
+    infoChanged = function(driver, device, event, args)
+      log.info(string.format("[%s] Preferences changed", device.label))
+      apply_changed_preferences(device, args.old_st_store.preferences)
     end,
     driverSwitched = function(driver, device)
       log.info(string.format("[%s] Driver Switched - re-enrolling IASZone", device.label))

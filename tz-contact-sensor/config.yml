@@ -1,4 +1,4 @@
-name: Tuya Zigbee Motion Sensor (TS0601 TZE200_ka8l86iu)
+name: Hobeian mmWave Presence Sensor (ZG-204ZP)
 packageKey: devy-tuya-tz-motion-sensor
 category: MotionSensor
 permissions:
